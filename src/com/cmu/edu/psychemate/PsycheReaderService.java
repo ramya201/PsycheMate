@@ -9,6 +9,7 @@ import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -24,7 +25,7 @@ public class PsycheReaderService extends Service {
 
 	private BluetoothAdapter bluetoothAdapter;
 	private TGDevice device;
-	private final boolean rawEnabled = false;
+	private final boolean rawEnabled = true;
 
 	private static final String BLUETOOTH_TAG = "BLUETOOTH_TEST";
 	private static final String CONNECTION_TAG = "CONNECTION_STATUS";
@@ -33,27 +34,31 @@ public class PsycheReaderService extends Service {
 
 	public static final int RECORD_DATA = 0;
 	public static final int START_SERVICE = 1;
-	
-	public static final int RECORDING_TIME_IN_MS = 10000;
-	public static final int NO_OF_SAMPLES = 1000;
+
+	public static final int RECORDING_TIME_IN_MS = 15000;
+	public static final int CONNECTION_TIME_IN_MS = 5000;
+	public static final int NO_OF_SAMPLES = 15;
 
 	private Looper mServiceLooper;
 	private ServiceHandler mServiceHandler;
-	
+
 	private Context context;
-	
-	private ArrayList<Integer> raw_eeg = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> theta = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> delta = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> alpha1 = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> alpha2 = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> beta1 = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> beta2 = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> gamma1 = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> gamma2 = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> attention = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> meditation = new ArrayList<Integer>(NO_OF_SAMPLES);
-	private ArrayList<Integer> blink = new ArrayList<Integer>(NO_OF_SAMPLES);
+	private final Object lock = new Object();
+	private boolean recordingDone = false;
+	private boolean doRecord = false;
+
+	private ArrayList<Integer> raw_eeg = new ArrayList<Integer>();
+	private ArrayList<Integer> theta = new ArrayList<Integer>();
+	private ArrayList<Integer> delta = new ArrayList<Integer>();
+	private ArrayList<Integer> alpha1 = new ArrayList<Integer>();
+	private ArrayList<Integer> alpha2 = new ArrayList<Integer>();
+	private ArrayList<Integer> beta1 = new ArrayList<Integer>();
+	private ArrayList<Integer> beta2 = new ArrayList<Integer>();
+	private ArrayList<Integer> gamma1 = new ArrayList<Integer>();
+	private ArrayList<Integer> gamma2 = new ArrayList<Integer>();
+	private ArrayList<Integer> attention = new ArrayList<Integer>();
+	private ArrayList<Integer> meditation = new ArrayList<Integer>();
+	private ArrayList<Integer> blink = new ArrayList<Integer>();
 
 	private final class ServiceHandler extends Handler {
 
@@ -68,15 +73,20 @@ public class PsycheReaderService extends Service {
 
 			case RECORD_DATA:
 				Log.d(EVENT_TAG,"Recording Data");
-				device.start();
-				try {
-					Thread.sleep(RECORDING_TIME_IN_MS + 3000);
-				} catch (InterruptedException e) {
-					e.printStackTrace();
+				doRecord = true;
+				synchronized (lock) {
+					while (!recordingDone)
+					{
+						try {
+							lock.wait();
+						} catch (InterruptedException e) {
+
+						}
+					}
 				}
-				device.stop();
+				doRecord = false;
 				generateCsvFiles();
-				stopSelf();
+				//stopSelf();
 				break;
 			}
 		}
@@ -90,7 +100,7 @@ public class PsycheReaderService extends Service {
 			device.connect(rawEnabled);
 			Log.d(CONNECTION_TAG,"Connection established");
 		}
-		
+
 		raw_eeg.clear();
 		delta.clear();
 		theta.clear();
@@ -103,21 +113,23 @@ public class PsycheReaderService extends Service {
 		attention.clear();
 		meditation.clear();
 		blink.clear();
+		recordingDone = false;
+		doRecord = false;
 
 		Message msg = mServiceHandler.obtainMessage();
 		int eventType = intent.getIntExtra("EventType", -1);
 		msg.what = eventType;
 		mServiceHandler.sendMessage(msg);
 
-		return START_REDELIVER_INTENT;
+		return START_NOT_STICKY;
 	}
 
 	@Override
 	public void onCreate() {
 		super.onCreate();
-		
+
 		context = getApplicationContext();
-		
+
 		HandlerThread thread = new HandlerThread("PsycheServiceHandler", Process.THREAD_PRIORITY_BACKGROUND);
 		thread.start();
 
@@ -148,6 +160,7 @@ public class PsycheReaderService extends Service {
 					break;		                    
 				case TGDevice.STATE_CONNECTED:
 					Log.d(CONNECTION_TAG,"Device connected.");
+					device.start();
 					break;
 				case TGDevice.STATE_NOT_FOUND:
 					Log.d(CONNECTION_TAG,"Can't find device");
@@ -163,54 +176,99 @@ public class PsycheReaderService extends Service {
 				Log.d(SIGNAL_TAG,"PoorSignal: " + msg.arg1);
 				break;
 			case TGDevice.MSG_RAW_DATA:
-				if (raw_eeg.size() < NO_OF_SAMPLES)
-					raw_eeg.add(msg.arg1);
-				Log.d(SIGNAL_TAG,"Got raw: " + msg.arg1);
+				if (doRecord)
+				{
+					if (raw_eeg.size() < NO_OF_SAMPLES*512)
+						raw_eeg.add(msg.arg1);
+				}
 				break;
 			case TGDevice.MSG_EEG_POWER:
-				TGEegPower eegPower = (TGEegPower) msg.obj;
-				if (delta.size() < NO_OF_SAMPLES)
-					delta.add(eegPower.delta);
-				if (theta.size() < NO_OF_SAMPLES)
-					theta.add(eegPower.theta);
-				if (beta1.size() < NO_OF_SAMPLES)
-					beta1.add(eegPower.lowBeta);
-				if (beta2.size() < NO_OF_SAMPLES)
-					beta2.add(eegPower.highBeta);
-				if (alpha1.size() < NO_OF_SAMPLES)
-					alpha1.add(eegPower.lowAlpha);
-				if (alpha2.size() < NO_OF_SAMPLES)
-					alpha2.add(eegPower.highAlpha);
-				if (gamma1.size() < NO_OF_SAMPLES)
-					gamma1.add(eegPower.lowGamma);
-				if (gamma2.size() < NO_OF_SAMPLES)
-					gamma2.add(eegPower.midGamma);
-				Log.d(SIGNAL_TAG,"Got EEG Powers");
-				break;
-			case TGDevice.MSG_HEART_RATE:
-				Log.d(SIGNAL_TAG,"Heart rate: " + msg.arg1);
+				if (doRecord)
+				{
+					TGEegPower eegPower = (TGEegPower) msg.obj;
+					if (delta.size() < NO_OF_SAMPLES)
+					{
+						Log.d(SIGNAL_TAG,"Delta:"+ eegPower.delta);
+						delta.add(eegPower.delta);
+					}
+					if (theta.size() < NO_OF_SAMPLES)
+					{
+						Log.d(SIGNAL_TAG,"Theta:"+ eegPower.theta);
+						theta.add(eegPower.theta);
+					}
+					if (beta1.size() < NO_OF_SAMPLES)
+					{
+						Log.d(SIGNAL_TAG,"Beta1:"+ eegPower.lowBeta);
+						beta1.add(eegPower.lowBeta);
+					}
+					if (beta2.size() < NO_OF_SAMPLES)
+					{
+						Log.d(SIGNAL_TAG,"Beta2:"+ eegPower.highBeta);
+						beta2.add(eegPower.highBeta);
+					}
+					if (alpha1.size() < NO_OF_SAMPLES)
+					{
+						Log.d(SIGNAL_TAG,"Alpha1:"+ eegPower.lowAlpha);
+						alpha1.add(eegPower.lowAlpha);
+					}
+					if (alpha2.size() < NO_OF_SAMPLES)
+					{
+						Log.d(SIGNAL_TAG,"Alpha2:"+ eegPower.highAlpha);
+						alpha2.add(eegPower.highAlpha);
+					}
+					if (gamma1.size() < NO_OF_SAMPLES)
+					{
+						Log.d(SIGNAL_TAG,"Gamma1:"+ eegPower.lowGamma);
+						gamma1.add(eegPower.lowGamma);
+					}
+					if (gamma2.size() < NO_OF_SAMPLES)
+					{
+						Log.d(SIGNAL_TAG,"Gamma2:"+ eegPower.midGamma);
+						gamma2.add(eegPower.midGamma);
+					}
+				}
 				break;
 			case TGDevice.MSG_ATTENTION:
-				if (attention.size() < NO_OF_SAMPLES)
-					attention.add(msg.arg1);
-				Log.d(SIGNAL_TAG,"Attention: " + msg.arg1);
+				if (doRecord)
+				{
+					if (attention.size() < NO_OF_SAMPLES)
+					{
+						attention.add(msg.arg1);
+						Log.d(SIGNAL_TAG,"Attention: " + msg.arg1);
+					}
+				}
 				break;
 			case TGDevice.MSG_MEDITATION:
-				if (meditation.size() < NO_OF_SAMPLES)
-					meditation.add(msg.arg1);
-				Log.d(SIGNAL_TAG,"Meditation: " + msg.arg1);
+				if (doRecord)
+				{
+					if (meditation.size() < NO_OF_SAMPLES)
+					{
+						meditation.add(msg.arg1);
+						Log.d(SIGNAL_TAG,"Meditation: " + msg.arg1);
+					}
+					synchronized(lock)
+					{
+						if (delta.size() == NO_OF_SAMPLES && meditation.size() == NO_OF_SAMPLES)
+						{
+							Log.d(SIGNAL_TAG,"Recording is complete!");
+							recordingDone = true;
+							lock.notifyAll();
+						} 
+					}
+				}
 				break;
 			case TGDevice.MSG_BLINK:
-				if (blink.size() < NO_OF_SAMPLES)
-					blink.add(msg.arg1);
-				Log.d(SIGNAL_TAG,"Blink: " + msg.arg1);
-				break;
-			case TGDevice.MSG_RAW_COUNT:
+				if (doRecord)
+				{
+					if (blink.size() < NO_OF_SAMPLES)
+					{
+						blink.add(msg.arg1);
+						Log.d(SIGNAL_TAG,"Blink: " + msg.arg1);
+					}
+				}
 				break;
 			case TGDevice.MSG_LOW_BATTERY:
 				Log.d(CONNECTION_TAG,"Low Battery");
-				break;
-			case TGDevice.MSG_RAW_MULTI:
 				break;
 			default:
 				break;
@@ -222,24 +280,30 @@ public class PsycheReaderService extends Service {
 	public IBinder onBind(Intent intent) {
 		return null;
 	}
-	
+
 	public void generateCsvFiles()
 	{
 		try {
-			File dir = new File(context.getFilesDir() + "/Data");
-			dir.mkdir();
+			File dir = new File(Environment.getExternalStorageDirectory() + "/EEGData");
+			if (!dir.exists())
+				dir.mkdir();
+
 			File file1 = new File(dir,"RawEEG.txt");
+			if (!file1.exists())
+			{
+				file1.createNewFile();
+			}
 			FileWriter writer1 = new FileWriter(file1.getAbsolutePath());
-			
+
 			for (Integer i: raw_eeg) {
 				writer1.append(i.toString());
 				writer1.append("\n");
 			}
-			
+
 			writer1.flush();
 			writer1.close();
-			
-			File file2 = new File(context.getFilesDir() + "/Data/Delta.txt");
+
+			File file2 = new File(dir,"Delta.txt");
 			if (!file2.exists())
 			{
 				file2.createNewFile();
@@ -249,11 +313,11 @@ public class PsycheReaderService extends Service {
 				writer2.append(i.toString());
 				writer2.append("\n");
 			}
-			
+
 			writer2.flush();
 			writer2.close();
-			
-			File file3 = new File(context.getFilesDir() + "/Data/Theta.txt");
+
+			File file3 = new File(dir,"Theta.txt");
 			if (!file3.exists())
 			{
 				file3.createNewFile();
@@ -263,11 +327,11 @@ public class PsycheReaderService extends Service {
 				writer3.append(i.toString());
 				writer3.append("\n");
 			}
-			
+
 			writer3.flush();
 			writer3.close();
-			
-			File file4 = new File(context.getFilesDir() + "/Data/Beta1.txt");
+
+			File file4 = new File(dir,"Beta1.txt");
 			if (!file4.exists())
 			{
 				file4.createNewFile();
@@ -277,11 +341,11 @@ public class PsycheReaderService extends Service {
 				writer4.append(i.toString());
 				writer4.append("\n");
 			}
-			
+
 			writer4.flush();
 			writer4.close();
-			
-			File file5 = new File(context.getFilesDir() + "/Data/Beta2.txt");
+
+			File file5 = new File(dir,"Beta2.txt");
 			if (!file5.exists())
 			{
 				file5.createNewFile();
@@ -291,11 +355,11 @@ public class PsycheReaderService extends Service {
 				writer5.append(i.toString());
 				writer5.append("\n");
 			}
-			
+
 			writer5.flush();
 			writer5.close();
-			
-			File file6 = new File(context.getFilesDir() + "/Data/Alpha1.txt");
+
+			File file6 = new File(dir,"Alpha1.txt");
 			if (!file6.exists())
 			{
 				file6.createNewFile();
@@ -305,11 +369,11 @@ public class PsycheReaderService extends Service {
 				writer6.append(i.toString());
 				writer6.append("\n");
 			}
-			
+
 			writer6.flush();
 			writer6.close();
-			
-			File file7 = new File(context.getFilesDir() + "/Data/Alpha2.txt");
+
+			File file7 = new File(dir,"Alpha2.txt");
 			if (!file7.exists())
 			{
 				file7.createNewFile();
@@ -319,11 +383,11 @@ public class PsycheReaderService extends Service {
 				writer7.append(i.toString());
 				writer7.append("\n");
 			}
-			
+
 			writer7.flush();
 			writer7.close();
-			
-			File file8 = new File(context.getFilesDir()+ "/Data/Gamma1.txt");
+
+			File file8 = new File(dir,"Gamma1.txt");
 			if (!file8.exists())
 			{
 				file8.createNewFile();
@@ -333,11 +397,11 @@ public class PsycheReaderService extends Service {
 				writer8.append(i.toString());
 				writer8.append("\n");
 			}
-			
+
 			writer8.flush();
 			writer8.close();
-			
-			File file9 = new File(context.getFilesDir() + "/Data/Gamma2.txt");
+
+			File file9 = new File(dir,"Gamma2.txt");
 			if (!file9.exists())
 			{
 				file9.createNewFile();
@@ -347,11 +411,11 @@ public class PsycheReaderService extends Service {
 				writer9.append(i.toString());
 				writer9.append("\n");
 			}
-			
+
 			writer9.flush();
 			writer9.close();
-			
-			File file10 = new File(context.getFilesDir() + "/Data/Attention.txt");
+
+			File file10 = new File(dir,"Attention.txt");
 			if (!file10.exists())
 			{
 				file10.createNewFile();
@@ -361,11 +425,11 @@ public class PsycheReaderService extends Service {
 				writer10.append(i.toString());
 				writer10.append("\n");
 			}
-			
+
 			writer10.flush();
 			writer10.close();
-			
-			File file11 = new File(context.getFilesDir() + "/Data/Meditation.txt");
+
+			File file11 = new File(dir,"Meditation.txt");
 			if (!file11.exists())
 			{
 				file11.createNewFile();
@@ -375,11 +439,11 @@ public class PsycheReaderService extends Service {
 				writer11.append(i.toString());
 				writer11.append("\n");
 			}
-			
+
 			writer11.flush();
 			writer11.close();
-			
-			File file12 = new File(context.getFilesDir() + "/Data/Blink.txt");
+
+			File file12 = new File(dir,"Blink.txt");
 			if (!file12.exists())
 			{
 				file12.createNewFile();
@@ -389,10 +453,10 @@ public class PsycheReaderService extends Service {
 				writer12.append(i.toString());
 				writer12.append("\n");
 			}
-			
+
 			writer12.flush();
 			writer12.close();
-			
+
 		} catch (IOException e) {
 			e.printStackTrace();
 		}

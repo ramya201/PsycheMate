@@ -1,5 +1,8 @@
 package com.cmu.edu.psychemate;
 
+import android.media.Ringtone;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.app.Activity;
 import android.content.Context;
@@ -23,7 +26,7 @@ public class HomeScreen extends Activity {
 
 		startStopBtn = (Button) findViewById(R.id.startStopBtn);
 		recordBtn = (Button) findViewById(R.id.recordBtn);
-		
+
 		context = getApplicationContext();
 	}
 
@@ -60,13 +63,17 @@ public class HomeScreen extends Activity {
 
 				@Override
 				public void run() {
+					Uri notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+					Ringtone tone = RingtoneManager.getRingtone(getApplicationContext(), notification);
+					tone.play();
+					
 					recordBtn.setText("Record Data");
 					recordBtn.setTextColor(Color.parseColor("#42A4CD"));
 					isRecording = false;
 				}
 
 			};
-			recordBtn.postDelayed(action, PsycheReaderService.RECORDING_TIME_IN_MS + 3000);
+			recordBtn.postDelayed(action, PsycheReaderService.CONNECTION_TIME_IN_MS + PsycheReaderService.RECORDING_TIME_IN_MS);
 		}
 	}
 

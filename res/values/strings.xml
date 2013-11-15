@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_name">Psyche Mate</string>
+    <string name="app_name">PsycheMate</string>
     <string name="action_settings">Settings</string>
     <string name="StartText">Start Service</string>
     <string name="RecordText">Record Data</string>
