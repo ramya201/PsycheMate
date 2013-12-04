@@ -5,5 +5,6 @@
     <string name="action_settings">Settings</string>
     <string name="StartText">Start Service</string>
     <string name="RecordText">Record Data</string>
+    <string name="list_title">Choose from popular memes</string>
 
 </resources>

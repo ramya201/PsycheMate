@@ -9,6 +9,7 @@ import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
 import android.content.Intent;
+import android.media.MediaPlayer;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -59,6 +60,8 @@ public class PsycheReaderService extends Service {
 	private ArrayList<Integer> attention = new ArrayList<Integer>();
 	private ArrayList<Integer> meditation = new ArrayList<Integer>();
 	private ArrayList<Integer> blink = new ArrayList<Integer>();
+	
+	private static MediaPlayer songPlayer;
 
 	private final class ServiceHandler extends Handler {
 
@@ -88,6 +91,10 @@ public class PsycheReaderService extends Service {
 				generateCsvFiles();
 				//stopSelf();
 				break;
+			case START_SERVICE:
+				int resID=getResources().getIdentifier("song1", "raw", getPackageName());
+				songPlayer = MediaPlayer.create(getApplicationContext(), resID);
+				songPlayer.start();
 			}
 		}
 	}
